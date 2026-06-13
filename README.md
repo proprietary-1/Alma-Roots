@@ -179,14 +179,3 @@ The database utilizes a highly scalable, hierarchical structure scoped by `insti
 - Enhanced Event Registration
 
 ---
-
-## 👥 Development Team
-
-| Name |
-|------|
-| Aadeesh Surana |
-| Lokesh Prajapat |
-| Nitin Raj Singh |
-| Mehul Mehra |
-| Archan Dave |
-| Ayush Bagdai |
