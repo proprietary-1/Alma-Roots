@@ -168,8 +168,6 @@ The login screen also has one-tap **Demo Access** buttons.
 
 ---
 
-## 👥 Development Team
+## 👥 Developed By
 
-| Name |
-|------|
-| Aadeesh Surana |
+Gitraj Chaudhari 
