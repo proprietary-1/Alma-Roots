@@ -60,6 +60,23 @@
       "collectionGroup": "posts",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "visibility", "order": "ASCENDING" },
+        { "fieldPath": "isPinned", "order": "DESCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "attendees",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "rsvpAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "posts",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "isPinned", "order": "DESCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]

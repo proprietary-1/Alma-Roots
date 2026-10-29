@@ -55,6 +55,33 @@ class AdminService {
     await batch.commit();
   }
 
+  /// Adds writes to [batch] that cancel a pending permanent deletion for [uid],
+  /// so restoring a user can't be followed by the queue deleting them anyway.
+  static Future<void> _cancelPendingDeletionIn(
+      WriteBatch batch, String instituteId, String uid, String adminUid) async {
+    final queueRef = _firestore
+        .collection('institutes')
+        .doc(instituteId)
+        .collection('deletion_queue')
+        .doc(uid);
+    final queueDoc = await queueRef.get();
+    if (queueDoc.exists && queueDoc.data()?['status'] == 'pending') {
+      batch.update(queueRef, {
+        'status': 'cancelled',
+        'cancelledAt': FieldValue.serverTimestamp(),
+        'cancelledBy': adminUid,
+        'notes': 'Cancelled because the user was restored',
+      });
+    }
+  }
+
+  static const Map<String, dynamic> _clearPendingDeletionFields = {
+    'pendingPermanentDeletion': false,
+    'permanentDeletionRequestedAt': null,
+    'permanentDeletionScheduledFor': null,
+    'permanentDeletionRequestedBy': null,
+  };
+
   /// Restores a soft-deleted user
   static Future<void> restoreUser({
     required String instituteId,
@@ -78,7 +105,9 @@ class AdminService {
       'deletedAt': null,
       'deletedBy': null,
       'status': 'active',
+      ..._clearPendingDeletionFields,
     });
+    await _cancelPendingDeletionIn(batch, instituteId, targetUid, currentUser.uid);
 
     // 2. Audit Logging
     final auditRef = _firestore
@@ -155,7 +184,9 @@ class AdminService {
       'status': 'active',
       'deletedAt': null,
       'deletedBy': null,
+      ..._clearPendingDeletionFields,
     });
+    await _cancelPendingDeletionIn(batch, instituteId, targetUid, currentUser.uid);
 
     batch.update(requestRef, {
       'status': 'approved',
@@ -231,7 +262,6 @@ class AdminService {
 
     final batch = _firestore.batch();
     
-    final now = FieldValue.serverTimestamp();
     // In Dart we use a DateTime to compute 24h from now to store in Firestore.
     // However, FieldValue.serverTimestamp() cannot be manipulated in Dart easily before saving.
     // So we use DateTime.now() instead.
@@ -279,10 +309,14 @@ class AdminService {
   }
 
   /// Admin cancels a scheduled permanent deletion
+  ///
+  /// [queueDocId] is the queue entry's document ID; it defaults to [targetUid]
+  /// but older entries may not use the uid as their ID.
   static Future<void> cancelPermanentDeletion({
     required String instituteId,
     required String targetUid,
     required String targetEmail,
+    String? queueDocId,
   }) async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) throw Exception("Admin must be logged in.");
@@ -297,7 +331,14 @@ class AdminService {
         .collection('institutes')
         .doc(instituteId)
         .collection('deletion_queue')
-        .doc(targetUid);
+        .doc(queueDocId ?? targetUid);
+
+    // update() fails on missing documents, so check both before writing.
+    final snaps = await Future.wait([queueRef.get(), participantRef.get()]);
+    if (!snaps[0].exists) {
+      throw Exception("This deletion request no longer exists.");
+    }
+    final participantExists = snaps[1].exists;
 
     final batch = _firestore.batch();
 
@@ -308,13 +349,15 @@ class AdminService {
       'cancelledBy': currentUser.uid,
     });
 
-    // 2. Reset Participant Doc
-    batch.update(participantRef, {
-      'pendingPermanentDeletion': false,
-      'permanentDeletionRequestedAt': null,
-      'permanentDeletionScheduledFor': null,
-      'permanentDeletionRequestedBy': null,
-    });
+    // 2. Reset Participant Doc (it may already be gone for stale queue entries)
+    if (participantExists) {
+      batch.update(participantRef, {
+        'pendingPermanentDeletion': false,
+        'permanentDeletionRequestedAt': null,
+        'permanentDeletionScheduledFor': null,
+        'permanentDeletionRequestedBy': null,
+      });
+    }
 
     // 3. Audit Logging
     final auditRef = _firestore
@@ -336,7 +379,8 @@ class AdminService {
   }
   static Future<Map<String, dynamic>> processDeletionQueue({required String instituteId, String? targetUid}) async {
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable('processDeletionQueueNow');
+      final callable = FirebaseFunctions.instanceFor(region: 'asia-south1')
+          .httpsCallable('processDeletionQueueNow');
       final result = await callable.call({
         'instituteId': instituteId,
         'targetUid': targetUid,
